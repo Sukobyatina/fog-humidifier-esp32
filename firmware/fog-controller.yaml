@@ -1,10 +1,11 @@
 # =====================================================================
-#  Система туманообразования — контроллер (ТЗ v2.5, docs/TZ.md)
+#  Система туманообразования — контроллер (ТЗ v2.6, docs/TZ.md)
 #  Плата: YD-ESP32-S3 N16R8 · ESPHome 2026.x · ESP-IDF
 #
 #  Перед первой прошивкой:
 #   1. secrets.yaml по образцу secrets.example.yaml
 #   2. substitutions ниже: датчик влажности HA (ha_humidity),
+#      MAC BLE-термометра (ble_mac),
 #      pwm_max (жёсткий предел ШИМ = калибровка по манометру + 10 %)
 #   3. Пусконаладка по разделу 7 ТЗ: «Рабочая мощность» подбирается
 #      по манометру до 65–70 бар, начиная с 30 %.
@@ -14,6 +15,7 @@ substitutions:
   name: fog-controller
   friendly_name: Туманообразование
   ha_humidity: sensor.living_room_humidity  # датчик влажности из HA
+  ble_mac: "A4:C1:38:00:00:00"              # BLE-термометр LYWSD03MMC с прошивкой pvvx
   pwm_freq: 10000Hz                         # в пределах спецификации XY-MOS
   pwm_max: "45"                             # %, после калибровки: найденное + 10
   flow_ml_min: "80"                         # расход 4 форсунок, мл/мин (уточнить замером)
@@ -88,6 +90,10 @@ time:
         - lambda: |-
             if (id(filter_epoch) == 0) id(filter_epoch) = id(rtc).now().timestamp;
 
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
 one_wire:
   - platform: gpio
     pin: GPIO18
@@ -117,6 +123,8 @@ globals:
   - {id: needs_flush, type: bool, initial_value: "false"}
   # влажность
   - {id: rh_ha_ms, type: uint32_t, initial_value: "0"}
+  - {id: rh_local_ms, type: uint32_t, initial_value: "0"}
+  - {id: rh_src_used, type: std::string, initial_value: '"нет данных"'}
   - {id: rh_used, type: float, initial_value: "NAN"}
   # серия циклов
   - {id: series_active, type: bool, initial_value: "false"}
@@ -281,6 +289,20 @@ binary_sensor:
 #  Датчики
 # ---------------------------------------------------------------------
 sensor:
+  # Локальный датчик влажности — BLE-термометр pvvx прямо на ESP32
+  - platform: pvvx_mithermometer
+    mac_address: ${ble_mac}
+    temperature:
+      name: "Температура в комнате"
+    humidity:
+      id: rh_local
+      name: "Влажность, BLE-датчик"
+      on_value:
+        then:
+          - lambda: id(rh_local_ms) = millis();
+    battery_level:
+      name: "Батарея BLE-датчика"
+
   # Датчик влажности из HA
   - platform: homeassistant
     id: rh_ha
@@ -350,6 +372,10 @@ text_sensor:
     id: ts_alarm
     name: "Последняя авария"
     update_interval: never
+  - platform: template
+    id: ts_src
+    name: "Источник влажности"
+    update_interval: never
 
 switch:
   - platform: template
@@ -365,6 +391,16 @@ switch:
     name: "Автопромывка"
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+
+select:
+  - platform: template
+    id: rh_src
+    name: "Источник влажности"
+    optimistic: true
+    restore_value: true
+    options: ["Авто", "BLE", "HA"]
+    initial_option: "Авто"
     entity_category: config
 
 button:
@@ -605,10 +641,15 @@ interval:
           // --- ресурс ---
           if (id(pump_lvl) > 0.01f) { id(motor_s)++; id(motor_s_service)++; }
 
-          // --- влажность: датчик из HA ---
+          // --- влажность: Авто = BLE, при его отсутствии HA; либо строго выбранный источник ---
           const float rto = id(n_rh_timeout).state * 60000.0f;
+          bool lv = id(rh_local_ms) > 0 && (now - id(rh_local_ms)) < rto && !isnan(id(rh_local).state);
           bool hv = id(rh_ha_ms) > 0 && (now - id(rh_ha_ms)) < rto && !isnan(id(rh_ha).state);
-          float rh = hv ? id(rh_ha).state : NAN;
+          const size_t src = id(rh_src).active_index().value_or(0);  // 0 Авто, 1 BLE, 2 HA
+          float rh = NAN;
+          if ((src == 0 || src == 1) && lv) { rh = id(rh_local).state; id(rh_src_used) = "BLE"; }
+          else if ((src == 0 || src == 2) && hv) { rh = id(rh_ha).state; id(rh_src_used) = "HA"; }
+          else id(rh_src_used) = "нет данных";
           id(rh_used) = rh;
 
           // --- температура насоса ---
@@ -708,6 +749,7 @@ interval:
             std::string txt = (sv < 0 || sv > 8) ? "?" : ((sv == 0 && !id(main_sw).state) ? "Выключено" : names[sv]);
             if (!id(ts_state).has_state() || id(ts_state).state != txt) id(ts_state).publish_state(txt);
             if (!id(ts_alarm).has_state() || id(ts_alarm).state != id(last_alarm)) id(ts_alarm).publish_state(id(last_alarm));
+            if (!id(ts_src).has_state() || id(ts_src).state != id(rh_src_used)) id(ts_src).publish_state(id(rh_src_used));
           }
 
           // --- светодиод статуса ---
