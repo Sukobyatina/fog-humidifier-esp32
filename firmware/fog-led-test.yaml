@@ -1,0 +1,151 @@
+# Тестовая прошивка: проверка встроенного RGB-светодиода YD-ESP32-S3
+# Веб-интерфейс: http://fog-led-test.local или http://<IP платы>
+# secrets.yaml по образцу secrets.example.yaml
+
+esphome:
+  name: fog-led-test
+  friendly_name: Туман — тест светодиода
+  on_boot:
+    priority: 800
+    then:
+      # Силовые выходы по карте ТЗ держим выключенными, даже если плата уже подключена
+      - switch.turn_off: pump_pwm_pin
+      - switch.turn_off: drain_valve_pin
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Fog-LED-Test"
+    password: !secret ap_password
+  reboot_timeout: 0s
+
+captive_portal:
+
+ota:
+  - platform: esphome
+
+web_server:
+  port: 80
+  version: 3
+
+# --- Защита: IO5 (насос) и IO7 (SSR дренажа) всегда выключены ---
+switch:
+  - platform: gpio
+    id: pump_pwm_pin
+    pin: GPIO5
+    restore_mode: ALWAYS_OFF
+    internal: true
+  - platform: gpio
+    id: drain_valve_pin
+    pin: GPIO7
+    restore_mode: ALWAYS_OFF
+    internal: true
+
+# --- Встроенный RGB-светодиод WS2812 ---
+# YD-ESP32-S3: GPIO48
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_led
+    name: "Светодиод статуса"
+    pin: GPIO48
+    num_leds: 1
+    chipset: ws2812
+    channel_colors: GRB
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0.2s
+    effects:
+      - pulse:
+          name: "Пульс"
+          transition_length: 0.6s
+          update_interval: 0.6s
+      # Мигание текущим цветом (strobe без цвета мигает белым)
+      - addressable_lambda:
+          name: "Мигание"
+          update_interval: 300ms
+          lambda: |-
+            static bool on = false;
+            on = !on;
+            it.all() = on ? current_color : Color::BLACK;
+      - addressable_rainbow:
+          name: "Радуга"
+
+# --- Кнопки-сценарии будущих состояний (из ТЗ) ---
+button:
+  - platform: template
+    name: "1. Ожидание — синий"
+    on_press:
+      - light.turn_on:
+          id: status_led
+          red: 0%
+          green: 20%
+          blue: 100%
+          brightness: 30%
+          effect: none
+  - platform: template
+    name: "2. Распыление — зелёный пульс"
+    on_press:
+      - light.turn_on:
+          id: status_led
+          red: 0%
+          green: 100%
+          blue: 10%
+          brightness: 50%
+          effect: "Пульс"
+  - platform: template
+    name: "3. Ожидание воды — жёлтый мигает"
+    on_press:
+      - light.turn_on:
+          id: status_led
+          red: 100%
+          green: 70%
+          blue: 0%
+          brightness: 50%
+          effect: "Мигание"
+  - platform: template
+    name: "4. Авария — красный мигает"
+    on_press:
+      - light.turn_on:
+          id: status_led
+          red: 100%
+          green: 0%
+          blue: 0%
+          brightness: 80%
+          effect: "Мигание"
+  - platform: template
+    name: "5. Проверка цветов — радуга"
+    on_press:
+      - light.turn_on:
+          id: status_led
+          brightness: 40%
+          effect: "Радуга"
+  - platform: template
+    name: "Выключить светодиод"
+    on_press:
+      - light.turn_off: status_led
+  - platform: restart
+    name: "Перезагрузка"
+
+sensor:
+  - platform: wifi_signal
+    name: "Сигнал Wi-Fi"
+    update_interval: 30s
+  - platform: uptime
+    name: "Время работы"
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP-адрес"

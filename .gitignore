@@ -1,0 +1,11 @@
+# ESPHome
+secrets.yaml
+.esphome/
+**/.esphome/
+*.bin
+*.elf
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

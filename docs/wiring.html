@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Распайка контроллера тумана</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=PT+Mono&family=PT+Sans:wght@400;700&family=PT+Sans+Narrow:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: drafting sheet — ГОСТ-style title block, schematic sheet with a sticky detail panel, wiring checklist below */
+:root{
+  --bg:#e7ebef; --sheet:#f8fafb; --board:#eef2f5; --grid:#e1e7ec; --ink:#16202b; --ink-2:#4a5866; --ink-3:#7d8995;
+  --rule:#c4cdd6; --frame:#2b3947; --sel:#c98a07; --sel-soft:rgba(201,138,7,.14);
+  --w-act:#1d62c4; --w-sens:#0b7a5c; --w-ui:#7a43c2; --w-pwr:#c8381f; --w-5v:#c26f00; --w-3v3:#167fa8;
+  --w-mains:#8a4d10; --w-res:#7c8894; --bad:#b5301c; --good:#0b7a5c;
+  --f-disp:'PT Sans Narrow','Arial Narrow','Roboto Condensed',sans-serif;
+  --f-body:'PT Sans','Segoe UI',Roboto,Arial,sans-serif;
+  --f-mono:'PT Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d141c; --sheet:#121b25; --board:#17222e; --grid:#1a2531; --ink:#e3e9ef; --ink-2:#9fadbb; --ink-3:#6c7a88;
+  --rule:#2c3a48; --frame:#7d8fa1; --sel:#f0b73a; --sel-soft:rgba(240,183,58,.14);
+  --w-act:#5ea0ff; --w-sens:#3ccf9c; --w-ui:#b88cff; --w-pwr:#ff6a50; --w-5v:#ffa53a; --w-3v3:#4cc3ec;
+  --w-mains:#d48d45; --w-res:#7d8a97; --bad:#ff6b57; --good:#3ccf9c; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0d141c; --sheet:#121b25; --board:#17222e; --grid:#1a2531; --ink:#e3e9ef; --ink-2:#9fadbb; --ink-3:#6c7a88;
+  --rule:#2c3a48; --frame:#7d8fa1; --sel:#f0b73a; --sel-soft:rgba(240,183,58,.14);
+  --w-act:#5ea0ff; --w-sens:#3ccf9c; --w-ui:#b88cff; --w-pwr:#ff6a50; --w-5v:#ffa53a; --w-3v3:#4cc3ec;
+  --w-mains:#d48d45; --w-res:#7d8a97; --bad:#ff6b57; --good:#3ccf9c; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body)}
+.wrap{max-width:1480px;margin:0 auto;padding-block:20px 56px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:grid;gap:16px}
+h1,h2,h3{font-family:var(--f-disp);text-wrap:balance;margin:0;line-height:1.15}
+.mono{font-family:var(--f-mono)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+
+/* title block */
+.head{display:grid;grid-template-columns:minmax(0,1fr) auto;border:1.5px solid var(--frame);background:var(--sheet)}
+.head .lead{padding:18px 20px;display:grid;gap:6px;min-width:0}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.head h1{font-size:clamp(28px,4vw,40px);font-weight:700}
+.head p{margin:0;max-width:66ch;color:var(--ink-2)}
+.stamp{display:grid;grid-template-columns:auto auto;border-left:1.5px solid var(--frame);font-size:13px;align-content:stretch}
+.stamp div{padding:6px 12px;border-bottom:1px solid var(--rule);display:flex;align-items:center}
+.stamp div:nth-child(odd){color:var(--ink-3);font-family:var(--f-mono);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;border-right:1px solid var(--rule)}
+.stamp div:nth-last-child(-n+2){border-bottom:0}
+.stamp b{font-family:var(--f-disp);font-size:15px}
+@media (max-width:820px){.head{grid-template-columns:1fr}.stamp{border-left:0;border-top:1.5px solid var(--frame)}}
+
+/* toolbar */
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.tabs{display:inline-flex;border:1.5px solid var(--frame);background:var(--sheet)}
+.tabs button{border:0;background:none;padding:8px 14px;cursor:pointer;font-family:var(--f-disp);font-size:16px;font-weight:700;color:var(--ink-2)}
+.tabs button+button{border-left:1.5px solid var(--frame)}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--sheet)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--rule);background:var(--sheet);padding:5px 10px 5px 8px;cursor:pointer;font-size:13px;display:inline-flex;align-items:center;gap:7px;border-radius:2px}
+.chip i{width:14px;height:3px;background:var(--c,var(--ink-3));display:inline-block}
+.chip.res i{background:repeating-linear-gradient(90deg,var(--w-res) 0 4px,transparent 4px 7px)}
+.chip[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--sheet)}
+
+/* work area */
+.work{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media (min-width:1180px){.work{grid-template-columns:minmax(0,1fr) 370px}}
+.sheet{border:1.5px solid var(--frame);background-color:var(--sheet);min-width:0;overflow-x:auto;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px}
+.sheet svg{display:block;width:100%;min-width:920px;height:auto}
+.panel{border:1.5px solid var(--frame);background:var(--sheet);padding:18px 18px 20px;align-self:start;display:grid;gap:16px;min-width:0}
+@media (min-width:1180px){.panel{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);max-height:calc(100vh - 24px);overflow:auto}.panel .back{display:none}}
+
+/* schematic */
+.sch text{font-family:var(--f-body)}
+.c-act{--c:var(--w-act)} .c-sens{--c:var(--w-sens)} .c-ui{--c:var(--w-ui)} .c-pwr{--c:var(--w-pwr)}
+.c-res{--c:var(--w-res)} .c-mains{--c:var(--w-mains)}
+.v-mains{--c:var(--w-mains)} .v-24{--c:var(--w-pwr)} .v-5{--c:var(--w-5v)} .v-33{--c:var(--w-3v3)}
+.wire{fill:none;stroke:var(--c);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round;transition:opacity .15s,stroke-width .15s}
+.wire.dash{stroke-dasharray:6 5}
+.wire.on{stroke-width:3.6}
+.dot{fill:var(--c)}
+.mod{cursor:pointer;transition:opacity .15s}
+.mod .box{fill:var(--sheet);stroke:var(--frame);stroke-width:1.25}
+.mod.res .box{stroke-dasharray:5 4}
+.mod:hover .box{stroke:var(--sel)}
+.mod.on .box{stroke:var(--sel);stroke-width:2.6;fill:var(--sheet)}
+.mod:focus{outline:none}
+.mod:focus-visible .box{stroke:var(--sel);stroke-width:3}
+.ref{font-family:var(--f-mono)!important;font-size:12px;fill:var(--c)}
+.nm{font-family:var(--f-disp)!important;font-weight:700;font-size:16px;fill:var(--ink)}
+.sb{font-size:12px;fill:var(--ink-2)}
+.term{font-family:var(--f-mono)!important;font-size:11px;fill:var(--ink-2)}
+.dim{opacity:.16}
+.board{fill:var(--board);stroke:var(--frame);stroke-width:1.5;cursor:pointer}
+.shield,.ant,.usb{fill:var(--sheet);stroke:var(--ink-3);stroke-width:1}
+.ant{stroke-dasharray:3 3}
+.sh{font-family:var(--f-mono)!important;font-size:12px;fill:var(--ink-2)}
+.bt{font-family:var(--f-disp)!important;font-weight:700;font-size:16px;fill:var(--ink)}
+.hdr{font-family:var(--f-mono)!important;font-size:12px;font-weight:700;fill:var(--ink)}
+.pl{font-family:var(--f-mono)!important;font-size:11.5px;fill:var(--ink-3)}
+.pl.used{fill:var(--ink);font-weight:700}
+.pl.power{fill:var(--ink-2)}
+.pl.free{fill:var(--good);font-weight:700}
+.pl.used{fill:var(--ink);font-weight:700}
+.pin{stroke-width:1.4;cursor:pointer}
+.pin.used{fill:var(--c);stroke:var(--c)}
+.pin.free{fill:var(--sheet);stroke:var(--good)}
+.pin.power{fill:var(--ink-2);stroke:var(--ink-2)}
+.pin.avoid{fill:var(--sheet);stroke:var(--bad)}
+.x{stroke:var(--bad);stroke-width:1.4}
+.pinhit{fill:transparent;cursor:pointer}
+.pinsel{fill:none;stroke:var(--sel);stroke-width:2.4}
+.tag{font-family:var(--f-mono)!important;font-size:11px}
+.tag.used{fill:var(--w-ui)} .tag.avoid{fill:var(--bad)} .tag.free{fill:var(--good)} .tag.power{fill:var(--ink-2)}
+.stub{font-family:var(--f-mono)!important;font-size:11px;fill:var(--w-3v3)}
+.vlab{font-family:var(--f-mono)!important;font-size:11px;fill:var(--c)}
+.gndband{fill:var(--board);stroke:var(--frame);stroke-width:1.25;cursor:pointer}
+.legend-t{font-size:12px;fill:var(--ink-2)}
+.jdot{fill:var(--c)}
+
+/* panel */
+.p-ref{font-family:var(--f-mono);font-size:13px;color:var(--c,var(--ink-2))}
+.panel h2{font-size:26px;font-weight:700;margin-top:2px}
+.p-sub{margin:4px 0 0;color:var(--ink-2)}
+.panel h3{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--rule);padding-bottom:4px;margin-bottom:8px}
+.panel ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.panel ul.dots li{padding-left:14px;position:relative}
+.panel ul.dots li::before{content:"";position:absolute;left:2px;top:.62em;width:5px;height:5px;background:var(--ink-3)}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tagc{font-size:12px;border:1px solid var(--rule);padding:1px 8px;display:inline-flex;align-items:center;gap:6px}
+.tagc i{width:12px;height:3px;background:var(--c)}
+.st{font-family:var(--f-mono);font-size:12px;padding:1px 8px;border:1px solid currentColor;display:inline-block}
+.st.avoid{color:var(--bad)} .st.free{color:var(--good)} .st.power{color:var(--ink-2)} .st.used{color:var(--sel)}
+.conn{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:start;cursor:pointer;padding:6px 8px;border:1px solid var(--rule);background:var(--bg)}
+.conn input{margin:3px 0 0;width:16px;height:16px;accent-color:var(--good)}
+.conn .ab{min-width:0}
+.conn .a,.conn .b{font-weight:700}
+.conn .arr{color:var(--ink-3);padding:0 4px}
+.conn .w{display:block;font-size:12.5px;color:var(--ink-2)}
+.conn.done{opacity:.62}
+.conn.done .a,.conn.done .b{text-decoration:line-through;text-decoration-color:var(--good)}
+.pins li{display:flex;gap:10px;align-items:baseline;font-size:14px}
+.pins .g{font-family:var(--f-mono);font-weight:700;min-width:44px}
+.pins .l{font-family:var(--f-mono);color:var(--ink-3);min-width:46px}
+.lg{display:grid;gap:6px;font-size:13.5px}
+.lg div{display:flex;gap:10px;align-items:center}
+.lg i{width:26px;height:3px;background:var(--c);flex:none}
+.lg i.dash{background:repeating-linear-gradient(90deg,var(--w-res) 0 6px,transparent 6px 10px)}
+.lg svg{flex:none}
+.back{justify-self:start;border:1px solid var(--rule);background:var(--bg);padding:4px 10px;cursor:pointer;font-size:13px}
+.hint{margin:0;color:var(--ink-2)}
+.prog{display:grid;gap:6px}
+.prog .row{display:flex;justify-content:space-between;font-size:14px;gap:8px}
+.meter{height:8px;background:var(--bg);border:1px solid var(--rule)}
+.meter span{display:block;height:100%;background:var(--good);width:0;transition:width .2s}
+
+/* netlist */
+.net{border:1.5px solid var(--frame);background:var(--sheet);display:grid;gap:12px;padding:18px 18px 8px}
+.net-head{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:end;justify-content:space-between}
+.net-head h2{font-size:26px}
+.net-head p{margin:2px 0 0;color:var(--ink-2);font-size:14px}
+.ctrls{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;font-size:14px}
+.ctrls label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.ctrls input{accent-color:var(--good)}
+.btn{border:1px solid var(--rule);background:var(--bg);padding:5px 12px;cursor:pointer;font-size:13.5px}
+.btn.warn{border-color:var(--bad);color:var(--bad)}
+.tw{overflow-x:auto;min-width:0}
+table{width:100%;border-collapse:collapse;min-width:680px;font-size:14px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+thead th{font-family:var(--f-mono);font-size:11.5px;font-weight:400;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+tr.grp th{background:var(--bg);font-family:var(--f-disp);font-size:16px;padding-top:10px}
+tr.grp .gb{all:unset;cursor:pointer;display:inline-flex;gap:10px;align-items:baseline}
+tr.grp .gb:hover .gn{text-decoration:underline}
+tr.grp .gb:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+tr.grp .gr{font-family:var(--f-mono);font-size:12.5px;color:var(--c)}
+tr.grp .gc{font-family:var(--f-mono);font-size:12px;color:var(--ink-3);font-weight:400;margin-left:8px}
+td.ck{width:38px}
+td.ck input{width:16px;height:16px;accent-color:var(--good);margin:2px 0 0}
+td.wi{color:var(--ink-2);font-size:13px}
+tr.done td{color:var(--ink-3)}
+tr.done td.from,tr.done td.to{text-decoration:line-through;text-decoration-color:var(--good)}
+tr.sel-row td{background:var(--sel-soft)}
+.foot{font-size:13px;color:var(--ink-3);margin:0}
+.empty{padding:14px 10px;color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+body{margin:0}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="head">
+    <div class="lead">
+      <div class="eyebrow">Схема подключения · Э5</div>
+      <h1>Распайка ESP32-S3</h1>
+      <p>Что и к какому выводу паять в системе туманообразования. Нажмите на блок, провод или вывод платы, чтобы увидеть соединения, номиналы и проверки; отмечайте распаянные провода прямо в списке.</p>
+    </div>
+    <div class="stamp" aria-label="Основная надпись">
+      <div>Изделие</div><div><b>Система туманообразования</b></div>
+      <div>Плата</div><div>YD-ESP32-S3 N16R8</div>
+      <div>Основание</div><div>ТЗ v2.5</div>
+      <div>Дата</div><div class="mono">29.10.2026</div>
+      <div>Лист</div><div class="mono">1 / 1</div>
+    </div>
+  </header>
+
+  <div class="bar">
+    <div class="tabs" role="tablist" aria-label="Вид схемы">
+      <button role="tab" id="tab-sig" data-view="signals" aria-selected="true">Сигналы ESP32</button>
+      <button role="tab" id="tab-pwr" data-view="power" aria-selected="false">Питание 24 V / 220 В</button>
+    </div>
+    <div class="chips" id="chips" aria-label="Фильтр по группам"></div>
+  </div>
+
+  <div class="work">
+    <div class="sheet" id="sheet"></div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+
+  <section class="net" aria-labelledby="net-title">
+    <div class="net-head">
+      <div>
+        <h2 id="net-title">Таблица соединений</h2>
+        <p>Отметки сохраняются только в этом браузере.</p>
+      </div>
+      <div class="ctrls">
+        <div class="prog" style="min-width:240px">
+          <div class="row"><span id="prog-t">Распаяно 0 из 0</span><span class="mono" id="prog-p">0%</span></div>
+          <div class="meter"><span id="prog-bar"></span></div>
+        </div>
+        <label><input type="checkbox" id="hide-done"> Скрыть распаянные</label>
+        <button class="btn" id="reset" type="button">Сбросить отметки</button>
+      </div>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>✓</th><th>Откуда</th><th>Куда</th><th>Провод</th></tr></thead>
+        <tbody id="net-body"></tbody>
+      </table>
+    </div>
+    <p class="foot">Резервные блоки (BP1, A8) в счётчик не входят. Номиналы и цоколёвку модулей сверить с их документацией до пайки; работы на сетевой части — только при снятом напряжении.</p>
+  </section>
+</div>
+
+<script>
+(function(){
+const C=(id,a,b,w)=>({id,a,b,w});
+const CATS={act:'Исполнительные',sens:'Датчики',ui:'Щиток',pwr:'Питание',mains:'Сеть 220 В',res:'Резерв'};
+const CAT_ORDER=['act','sens','ui','pwr','mains','res'];
+
+const DEV={
+  esp:{ref:'A1',name:'YD-ESP32-S3',sub:'N16R8 · контроллер',cats:['pwr'],pins:[],conns:[],
+    parts:['Питание 5 V на J1-21 от A5, общий минус J1-22.'],
+    notes:['Площадку IN-OUT у вывода 5V не замыкать: тогда USB и A5 не мешают друг другу, прошивать по USB можно при включённом 24 V.','Почти все выводы разъёма J3 заняты внутренними функциями модуля — метки справа от платы.']},
+  v33:{ref:'3V3',name:'Шина 3,3 V',sub:'выход стабилизатора платы',cats:['pwr'],pins:[{h:'J1',i:1,t:'3V3'}],
+    conns:[C('v1','A1 3V3 (J1-1)','Шина подтяжек на монтажной плате','0,22 мм², синий')],
+    parts:['R 10 кОм — подтяжки входов IO12 и IO15','R 4,7 кОм — подтяжка 1-Wire на IO18','Питание BK1 и модулей I²C (A8)'],
+    notes:['Только слаботочные цепи: датчики и подтяжки. Силовые нагрузки от 3,3 V платы не питать.']},
+  lm:{ref:'A5',name:'LM2596S 24 → 5 V',sub:'питание платы и SSR',cats:['pwr'],pins:[{h:'J1',i:21,t:'5V'},{h:'J1',i:22,t:'GND'}],
+    conns:[C('l1','Шина +24 V (после FU2)','A5 IN+','0,5 мм², красный'),C('l2','Точка GND (звезда)','A5 IN−','0,5 мм², чёрный'),
+      C('l3','A5 OUT+ (5,05 V)','A1 5V (J1-21)','0,5 мм², оранжевый'),C('l4','A5 OUT−','A1 GND (J1-22)','0,5 мм², чёрный')],
+    parts:['Электролит 470 мкФ на выходе, если его нет на модуле'],
+    notes:['Подстроечником выставить 5,0–5,1 V без нагрузки до подключения платы.','С того же выхода питается A4 SSR (DC+).']},
+  psu:{ref:'G1',name:'Блок питания 24 V',sub:'≥ 150 Вт · FU2 6 А инерционный',cats:['pwr'],pins:[],
+    conns:[C('p1','G1 +V','FU2 6 А (инерционный)','1,0 мм², красный'),C('p2','FU2','Шина +24 V','1,0 мм², красный'),C('p3','G1 −V','Точка GND (звезда)','1,0 мм², чёрный')],
+    parts:['FU2 — 6 А инерционный: рабочий ток насоса около 3,8 А плюс пусковой.'],
+    notes:['Ток двигателя уточнить по шильдику и при необходимости пересчитать FU2.','Шина +24 V питает A2 и A5.']},
+  gnd:{ref:'⏚',name:'Точка GND (звезда)',sub:'у клемм блока питания',cats:['pwr'],pins:[],conns:[],parts:[],
+    notes:['Минусовые провода силовой части сходятся в одной точке у БП: G1 −V, A2 DC−, A5 IN−.','Сигнальные GND модулей и датчиков — к GND платы (J1-22 или J3), короткими проводами.','Ток двигателя не должен идти по тонким сигнальным проводам.']},
+  mains:{ref:'XS1 · QD1',name:'Ввод 220 В и УЗО',sub:'L · N · PE, УЗО 30 мА',cats:['mains','pwr'],pins:[],
+    conns:[C('m1','Ввод L','QD1 L, вход','0,75–1,5 мм², коричневый'),C('m2','Ввод N','QD1 N, вход','0,75–1,5 мм², синий'),
+      C('m3','QD1 L, выход','G1 L','0,75 мм², коричневый'),C('m4','QD1 N, выход','G1 N','0,75 мм², синий'),
+      C('m5','Ввод PE','G1 ⏚ и клемма PE щитка','0,75 мм², жёлто-зелёный')],
+    parts:['QD1 — УЗО или дифавтомат 30 мА'],
+    notes:['Сетевая часть — в отдельном отсеке щитка, клеммы закрыты.','Все работы — только при снятом напряжении.']},
+  pump:{ref:'A2',name:'XY-MOS №1 → насос',sub:'ШИМ двигателя FG-025, 24 V',cats:['act'],pins:[{h:'J1',i:5,t:'PWM'}],
+    conns:[C('a1','IO5 (J1-5)','A2 PWM','0,22 мм²'),C('a2','GND платы','A2 GND (сигнальный)','0,22 мм², чёрный'),
+      C('a3','Шина +24 V','A2 DC+','1,0 мм², красный'),C('a4','Точка GND (звезда)','A2 DC−','1,0 мм², чёрный'),
+      C('a5','A2 OUT+','M1 +','1,0 мм², красный'),C('a6','A2 OUT−','M1 −','1,0 мм², чёрный')],
+    parts:['R 10 кОм IO5 → GND: насос стоит, пока ESP загружается','VD1 SR560 на клеммах M1: катод к +, анод к −','C 100 нФ керамика на клеммах M1','Ферритовое кольцо на проводах M1'],
+    notes:['Штатная плата FG-025 отключена, двигатель питается напрямую.','Частота ШИМ — в пределах спецификации модуля.','Проверить нагрев модуля при пусковом токе, при необходимости поставить радиатор.']},
+  inlet:{ref:'A3',name:'MOSFET №2 → клапан подачи',sub:'YA2, NC, 24 V · бак осмоса → насос',cats:['act'],pins:[{h:'J1',i:6,t:'IN'}],
+    conns:[C('i1','IO6 (J1-6)','A3 PWM / IN','0,22 мм²'),C('i2','GND платы','A3 GND (сигнальный)','0,22 мм², чёрный'),
+      C('i3','Шина +24 V','A3 DC+','0,5 мм², красный'),C('i4','Точка GND (звезда)','A3 DC−','0,5 мм², чёрный'),
+      C('i5','A3 OUT+','YA2 +','0,5 мм², красный'),C('i6','A3 OUT−','YA2 −','0,5 мм², чёрный')],
+    parts:['R 10 кОм IO6 → GND','VD2 SR560 или 1N5819 на катушке YA2: катод к +'],
+    notes:['Только включение и выключение, без ШИМ.','Клапан открыт при пуске, распылении и промывке.']},
+  ssr:{ref:'A4',name:'SSR G3MB-202P → дренаж',sub:'клапан сброса JT22-02, 220 В',cats:['act','mains'],pins:[{h:'J1',i:7,t:'IN'}],
+    conns:[C('s1','IO7 (J1-7)','A4 IN (CH1)','0,22 мм²'),C('s2','A5 OUT+ (+5 V)','A4 DC+','0,22 мм², оранжевый'),C('s3','GND платы','A4 DC−','0,22 мм², чёрный'),
+      C('s4','QD1 L, выход','FU3 1 А','0,75 мм², коричневый'),C('s5','FU3','A4 нагрузка, вход','0,75 мм², коричневый'),
+      C('s6','A4 нагрузка, выход','YA1 вывод 1','0,75 мм², коричневый'),C('s7','QD1 N, выход','YA1 вывод 2','0,75 мм², синий'),
+      C('s8','PE','YA1 ⏚ (клемма разъёма)','0,75 мм², жёлто-зелёный')],
+    parts:['RU1 10D471K параллельно катушке YA1, прямо на разъёме','FU3 — 1 А'],
+    notes:['Брать модуль с транзисторным входом и срабатыванием по высокому уровню: пока ESP в сбросе, клапан закрыт.','Голое реле G3MB-202P на 5 V от 3,3 V GPIO срабатывает ненадёжно.','Корпус клапана латунный — заземлить через клемму ⏚ разъёма.']},
+  press:{ref:'BP1',name:'Датчик давления',sub:'резерв · 0–10 МПа, 0,5–4,5 V',cats:['res','sens'],pins:[{h:'J1',i:4,t:'АЦП'}],
+    conns:[C('r1','BP1 OUT','R1 10 кОм → IO4 (J1-4)','экранированный, 0,22 мм²'),C('r2','IO4','R2 20 кОм → GND','на монтажной плате'),
+      C('r3','A5 OUT+ (+5 V)','BP1 VCC','0,22 мм²'),C('r4','GND платы','BP1 GND','0,22 мм²')],
+    parts:['Делитель R1 10 кОм / R2 20 кОм: 4,5 V → 3,0 V на входе АЦП','C 100 нФ IO4 → GND'],
+    notes:['Сейчас не устанавливается: вывод и место на плате зарезервированы.','IO4 — канал ADC1, работает одновременно с Wi-Fi.']},
+  lowp:{ref:'SP1',name:'Реле низкого давления',sub:'вход насоса · норма = замкнуто',cats:['sens'],pins:[{h:'J1',i:8,t:'IN'}],
+    conns:[C('lp1','SP1 контакт 1','R 1 кОм → IO15 (J1-8)','0,22 мм², экран при длине > 1 м'),C('lp2','SP1 контакт 2','GND платы','0,22 мм²'),
+      C('lp3','IO15','R 10 кОм → 3V3; C 100 нФ → GND','на монтажной плате')],
+    parts:['R 1 кОм последовательно, R 10 кОм к 3V3, C 100 нФ к GND'],
+    notes:['Замкнуто (LOW) — вода есть. Разомкнуто или обрыв (HIGH) — воды нет: обрыв провода безопасен.']},
+  leak1:{ref:'A6',name:'Протечка, техпомещение',sub:'релейный выход · норма = замкнуто',cats:['sens'],pins:[{h:'J1',i:9,t:'IN'}],
+    conns:[C('k1','A6 контакт NC','R 1 кОм → IO16 (J1-9)','0,22 мм²'),C('k2','A6 контакт COM','GND платы','0,22 мм²'),
+      C('k3','Шина +24 V или +5 V','A6 питание','по паспорту датчика'),C('k4','IO16','R 10 кОм → 3V3; C 100 нФ → GND','на монтажной плате')],
+    parts:['R 1 кОм последовательно, R 10 кОм к 3V3, C 100 нФ к GND'],
+    notes:['Протечка или обрыв линии дают HIGH — авария.','Голые электроды не использовать: осмосная вода плохо проводит ток.']},
+  leak2:{ref:'A7',name:'Протечка, комната',sub:'второй датчик · норма = замкнуто',cats:['sens'],pins:[{h:'J1',i:10,t:'IN'}],
+    conns:[C('q1','A7 контакт NC','R 1 кОм → IO17 (J1-10)','0,22 мм²'),C('q2','A7 контакт COM','GND платы','0,22 мм²'),
+      C('q3','Шина +24 V или +5 V','A7 питание','по паспорту датчика'),C('q4','IO17','R 10 кОм → 3V3; C 100 нФ → GND','на монтажной плате')],
+    parts:['R 1 кОм последовательно, R 10 кОм к 3V3, C 100 нФ к GND'],
+    notes:['Пока второй датчик не установлен — перемычка со входа IO17 на GND, иначе вход покажет аварию.','Линия в комнату — без соединений внутри стены.']},
+  ds18:{ref:'BK1',name:'DS18B20 на насосе',sub:'1-Wire · подтяжка 4,7 кОм',cats:['sens'],pins:[{h:'J1',i:11,t:'DQ'}],
+    conns:[C('d1','BK1 DQ','IO18 (J1-11)','витая пара или экран'),C('d2','A1 3V3','BK1 VDD','0,22 мм²'),C('d3','GND платы','BK1 GND','0,22 мм²'),
+      C('d4','IO18','R 4,7 кОм → 3V3','на монтажной плате, у ESP')],
+    parts:['R 4,7 кОм DQ → 3V3'],
+    notes:['Датчик закрепить на головке насоса через термопасту.','Обычное питание 3,3 V, не паразитное.']},
+  i2c:{ref:'A8',name:'Шина I²C',sub:'резерв · SHT4x, INA226',cats:['res','sens'],pins:[{h:'J1',i:12,t:'SDA'},{h:'J1',i:15,t:'SCL'}],
+    conns:[C('c1','A8 SDA','IO8 (J1-12)','0,22 мм²'),C('c2','A8 SCL','IO9 (J1-15)','0,22 мм²'),C('c3','A1 3V3 / GND','A8 VCC / GND','0,22 мм²'),
+      C('c4','SDA, SCL','R 4,7 кОм → 3V3, если нет на модулях','на монтажной плате')],
+    parts:['R 4,7 кОм на SDA и SCL, если их нет на модулях'],
+    notes:['INA226 — шунт в плюсовом проводе насоса, для косвенного контроля давления.','I²C не тянуть дальше 1–2 м: датчик влажности в комнате лучше BLE.']},
+  buzzer:{ref:'HA1',name:'Зуммер',sub:'активный 5 V через VT1',cats:['ui'],pins:[{h:'J1',i:16,t:'IN'}],
+    conns:[C('b1','IO10 (J1-16)','R 1 кОм → база VT1','на монтажной плате'),C('b2','Эмиттер VT1','GND платы','на монтажной плате'),
+      C('b3','Коллектор VT1','HA1 −','0,22 мм²'),C('b4','A5 OUT+ (+5 V)','HA1 +','0,22 мм², оранжевый')],
+    parts:['VT1 — BC547 или 2N2222','R 10 кОм база → эмиттер'],
+    notes:['Звучит при аварии и протечке, даже если HA недоступен.']},
+  led:{ref:'HL1',name:'Светодиод статуса',sub:'через R 330 Ом',cats:['ui'],pins:[{h:'J1',i:17,t:'OUT'}],
+    conns:[C('h1','IO11 (J1-17)','R 330 Ом → HL1 анод','0,22 мм²'),C('h2','HL1 катод','GND платы','0,22 мм²')],
+    parts:['R 330 Ом последовательно'],notes:['Ток около 4 мА — прямо от GPIO, без транзистора.']},
+  btn:{ref:'SB1',name:'Кнопка «Стоп / Сброс»',sub:'коротко — стоп, 3 с — сброс аварий',cats:['ui'],pins:[{h:'J1',i:18,t:'IN'}],
+    conns:[C('sb1','IO12 (J1-18)','SB1 вывод 1','0,22 мм²'),C('sb2','SB1 вывод 2','GND платы','0,22 мм²'),
+      C('sb3','IO12','R 10 кОм → 3V3; C 100 нФ → GND','на монтажной плате')],
+    parts:['R 10 кОм к 3V3, C 100 нФ к GND'],notes:['Нажатие замыкает на GND (LOW).']}
+};
+for(const k of ['inlet','leak1','leak2','buzzer','led'])delete DEV[k];
+const NET_ORDER=['mains','psu','lm','v33','pump','ssr','lowp','ds18','btn','press','i2c'];
+const SIG_ORDER=['press','pump','ssr','lowp','ds18','i2c','btn','lm'];
+
+const J1=['3V3','3V3','RST','IO4','IO5','IO6','IO7','IO15','IO16','IO17','IO18','IO8','IO3','IO46','IO9','IO10','IO11','IO12','IO13','IO14','5V','GND'];
+const J3=['GND','IO43','IO44','IO1','IO2','IO42','IO41','IO40','IO39','IO38','IO37','IO36','IO35','IO0','IO45','IO48','IO47','IO21','IO20','IO19','GND','GND'];
+const PSRAM='Занят октальной PSRAM модуля N16R8, использовать нельзя.';
+const PIN={
+  '3V3':['power','3,3 V','Выход 3,3 V стабилизатора платы: подтяжки, BK1, модули I²C.'],
+  '5V':['power','вход 5 V','Вход питания 5 V от A5 LM2596S.'],
+  'GND':['power','общий минус','Общий минус платы.'],
+  'RST':['avoid','сброс (EN)','Вход сброса модуля, не GPIO.'],
+  'IO3':['avoid','strapping','Strapping-пин выбора источника JTAG: уровень при загрузке влияет на старт.'],
+  'IO46':['avoid','strapping','Strapping-пин режима загрузки, только вход.'],
+  'IO13':['free','свободен','Свободен, резерв.'],'IO14':['free','свободен','Свободен, резерв.'],
+  'IO43':['avoid','UART0 TX','UART0 TX: лог и прошивка по последовательному порту.'],
+  'IO44':['avoid','UART0 RX','UART0 RX: лог и прошивка по последовательному порту.'],
+  'IO1':['free','свободен · ADC1','Свободен, канал ADC1 — резерв под аналоговые датчики.'],
+  'IO2':['free','свободен · ADC1','Свободен, канал ADC1 — резерв под аналоговые датчики.'],
+  'IO42':['free','свободен','Свободен (JTAG MTMS; при отладке через USB не занят).'],
+  'IO41':['free','свободен','Свободен (JTAG MTDI; при отладке через USB не занят).'],
+  'IO40':['free','свободен','Свободен (JTAG MTDO; при отладке через USB не занят).'],
+  'IO39':['free','свободен','Свободен (JTAG MTCK; при отладке через USB не занят).'],
+  'IO38':['free','свободен','Свободен: на YD-ESP32-S3 светодиод не на этом выводе.'],
+  'IO37':['avoid','PSRAM',PSRAM],'IO36':['avoid','PSRAM',PSRAM],'IO35':['avoid','PSRAM',PSRAM],
+  'IO0':['avoid','strapping, BOOT','Strapping-пин, кнопка BOOT.'],
+  'IO45':['avoid','strapping','Strapping-пин, задаёт напряжение VDD_SPI.'],
+  'IO48':['used','RGB LED статуса','Встроенный RGB-светодиод WS2812 платы YD-ESP32-S3 — индикатор статуса. В ESPHome: esp32_rmt_led_strip, pin GPIO48, chipset WS2812, num_leds 1.'],
+  'IO47':['avoid','избегать','По ТЗ не используется.'],
+  'IO21':['free','свободен','Свободен, резерв.'],
+  'IO6':['free','свободен','Свободен (клапан подачи A3 убран).'],
+  'IO16':['free','свободен','Свободен (датчики протечки вынесены в отдельную систему).'],'IO17':['free','свободен','Свободен (датчики протечки вынесены в отдельную систему).'],
+  'IO10':['free','свободен','Свободен (раньше — зуммер).'],'IO11':['free','свободен','Свободен (раньше — внешний светодиод).'],
+  'IO20':['avoid','USB D+','Линия USB D+ (прошивка и отладка).'],
+  'IO19':['avoid','USB D−','Линия USB D− (прошивка и отладка).']
+};
+const PINDEV={};
+for(const [id,d] of Object.entries(DEV)) for(const p of d.pins) PINDEV[p.h+'-'+p.i]={id,t:p.t};
+const ALL_CONNS=[];
+for(const id of NET_ORDER) for(const c of DEV[id].conns) ALL_CONNS.push({...c,dev:id});
+const COUNTED=ALL_CONNS.filter(c=>!DEV[c.dev].cats.includes('res'));
+
+/* state */
+const KEY='fog-wiring-done-v1';
+let done=new Set();
+try{const raw=localStorage.getItem(KEY);if(raw)done=new Set(JSON.parse(raw));}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify([...done]));}catch(e){}}
+let view='signals',cat='all',sel=null;
+let hideDone=false;
+
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const cc=id=>'c-'+DEV[id].cats[0];
+
+/* ---------- signals view ---------- */
+function svgSignals(){
+  const PY0=149,PP=30,BX1=700,BX2=880,MX=24,MW=356,MR=MX+MW;
+  const py=i=>PY0+(i-1)*PP;
+  let wires='',mods='',board='';
+  const tw=[];
+  SIG_ORDER.forEach((id,k)=>{
+    const d=DEV[id],top=200+70*k,cy=top+29,res=d.cats.includes('res');
+    const n=d.pins.length;
+    const terms=d.pins.map((p,j)=>{let ty=n===1?cy:cy-10+20*j;const y=py(p.i);if(Math.abs(ty-y)<=12)ty=y;return {p,ty,y};});
+    terms.forEach(t=>tw.push({id,ty:t.ty,y:t.y,res}));
+    mods+=`<g class="mod ${cc(id)}${res?' res':''}" data-sel="${id}" data-devs="${id}" role="button" tabindex="0" aria-label="${esc(d.ref+' '+d.name)}">
+      <rect class="box" x="${MX}" y="${top}" width="${MW}" height="58" rx="6"/>
+      <text class="ref" x="${MX+14}" y="${top+24}">${esc(d.ref)}</text>
+      <text class="nm" x="${MX+52}" y="${top+24}">${esc(d.name)}</text>
+      <text class="sb" x="${MX+14}" y="${top+44}">${esc(d.sub)}</text>
+      ${terms.map(t=>`<text class="term" x="${MR-10}" y="${t.ty+4}" text-anchor="end">${esc(t.p.t)}</text><circle class="dot" cx="${MR}" cy="${t.ty}" r="3.6"/>`).join('')}
+    </g>`;
+  });
+  const up=tw.filter(w=>w.ty<w.y).sort((a,b)=>a.y-b.y);
+  const down=tw.filter(w=>w.ty>w.y).sort((a,b)=>a.y-b.y);
+  up.forEach((w,i)=>w.x=420+(up.length-1-i)*36);
+  down.forEach((w,i)=>w.x=420+i*24);
+  for(const w of tw){
+    const d=w.x===undefined?`M${BX1} ${w.y}H${MR}`:`M${BX1} ${w.y}H${w.x}V${w.ty}H${MR}`;
+    wires+=`<path class="wire ${cc(w.id)}${w.res?' dash':''}" data-sel="${w.id}" data-devs="${w.id}" d="${d}"/>`;
+  }
+  // 3V3 stub
+  wires+=`<g class="mod c-pwr" data-sel="v33" data-devs="v33" style="cursor:pointer"><path class="wire v-33" d="M${BX1} ${py(1)}H650"/><circle class="jdot v-33" cx="650" cy="${py(1)}" r="3.2"/><text class="stub" x="642" y="${py(1)+4}" text-anchor="end">3V3 → подтяжки</text></g>`;
+
+  board+=`<text class="bt" x="790" y="84" text-anchor="middle">A1 · YD-ESP32-S3</text>
+    <rect class="board" data-sel="esp" x="${BX1}" y="96" width="180" height="720" rx="10"/>
+    <rect class="ant" x="748" y="104" width="84" height="28" rx="3" pointer-events="none"/><text class="sh" x="790" y="122" text-anchor="middle" pointer-events="none">антенна</text>
+    <rect class="shield" x="748" y="160" width="84" height="220" rx="4" pointer-events="none"/>
+    <text class="sh" x="790" y="252" text-anchor="middle" pointer-events="none">ESP32-S3</text>
+    <text class="sh" x="790" y="270" text-anchor="middle" pointer-events="none">WROOM-1</text>
+    <text class="sh" x="790" y="288" text-anchor="middle" pointer-events="none">N16R8</text>
+    <text class="hdr" x="712" y="136" pointer-events="none">J1</text><text class="hdr" x="868" y="136" text-anchor="end" pointer-events="none">J3</text>
+    <rect class="usb" x="752" y="790" width="32" height="16" rx="3" pointer-events="none"/><rect class="usb" x="796" y="790" width="32" height="16" rx="3" pointer-events="none"/>
+    <text class="sh" x="768" y="834" text-anchor="middle">USB</text><text class="sh" x="812" y="834" text-anchor="middle">UART</text>`;
+  const pinEl=(h,i,name,x,lx,anchor)=>{
+    const y=py(i),key=h+'-'+i,u=PINDEV[key];
+    let st=u?'used':(PIN[name]?PIN[name][0]:'free');
+    if(u&&(u.id==='lm'||u.id==='v33'))st='power';
+    const cls=u?cc(u.id):(st==='used'?'c-ui':'');
+    const attrs=u?`data-sel="${u.id}"`:`data-pin="${name}" data-loc="${key}"`;
+    let g=`<g class="pg" ${attrs} data-key="${key}">`;
+    g+=`<circle class="pin ${st} ${cls}" cx="${x}" cy="${y}" r="4.6"/>`;
+    if(st==='avoid')g+=`<path class="x" d="M${x-2.6} ${y-2.6}L${x+2.6} ${y+2.6}M${x+2.6} ${y-2.6}L${x-2.6} ${y+2.6}"/>`;
+    g+=`<text class="pl ${u?'used':st}" x="${lx}" y="${y+4}" text-anchor="${anchor}">${name}</text>`;
+    g+=`<rect class="pinhit" x="${anchor==='start'?x-10:lx-36}" y="${y-12}" width="48" height="24"/>`;
+    g+=`<circle class="pinsel" cx="${x}" cy="${y}" r="8" visibility="hidden"/>`;
+    g+='</g>';
+    return g;
+  };
+  J1.forEach((n,k)=>board+=pinEl('J1',k+1,n,BX1,712,'start'));
+  J3.forEach((n,k)=>{
+    board+=pinEl('J3',k+1,n,BX2,868,'end');
+    const info=PIN[n];const y=py(k+1);
+    board+=`<text class="tag ${info[0]}" x="${BX2+16}" y="${y+4}" data-pin="${n}" data-loc="J3-${k+1}" style="cursor:pointer">${esc(info[1])}</text>`;
+  });
+  return `<svg class="sch" viewBox="0 0 1180 860" role="img" aria-label="Схема подключения модулей к выводам ESP32-S3">${wires}${mods}${board}</svg>`;
+}
+
+/* ---------- power view ---------- */
+const PN=[
+  {id:'xs1',sel:'mains',devs:'mains',x:100,y:72,ref:'XS1',name:'Ввод 220 В',sub:'L · N · PE'},
+  {id:'qd1',sel:'mains',devs:'mains',x:290,y:72,ref:'QD1',name:'УЗО 30 мА',sub:'дифавтомат'},
+  {id:'fu3',sel:'ssr',devs:'ssr',x:480,y:72,ref:'FU3',name:'Предохранитель',sub:'1 А · линия клапана'},
+  {id:'a4',sel:'ssr',devs:'ssr',x:670,y:72,ref:'A4',name:'SSR G3MB-202P',sub:'нагрузка · упр. IO7'},
+  {id:'ya1',sel:'ssr',devs:'ssr',x:860,y:72,ref:'YA1',name:'Клапан сброса',sub:'JT22-02 · RU1, N, PE'},
+  {id:'g1',sel:'psu',devs:'psu',x:290,y:222,ref:'G1',name:'БП 24 V',sub:'≥ 150 Вт'},
+  {id:'fu2',sel:'psu',devs:'psu',x:480,y:222,ref:'FU2',name:'Предохранитель',sub:'6 А инерционный'},
+  {id:'a2',sel:'pump',devs:'pump',x:670,y:222,ref:'A2',name:'XY-MOS №1',sub:'ШИМ · упр. IO5'},
+  {id:'m1',sel:'pump',devs:'pump',x:860,y:222,ref:'M1',name:'Двигатель FG-025',sub:'VD1, C 100 нФ'},
+  {id:'a5',sel:'lm',devs:'lm',x:670,y:422,ref:'A5',name:'LM2596S',sub:'24 → 5,05 V'},
+  {id:'a1',sel:'esp',devs:'esp lm',x:860,y:422,ref:'A1',name:'ESP32-S3',sub:'5V J1-21 · GND J1-22'},
+  {id:'v33',sel:'v33',devs:'v33',x:1050,y:422,ref:'3V3',name:'Шина 3,3 V',sub:'подтяжки, BK1, A8'},
+  {id:'n5v',sel:'lm',devs:'lm ssr buzzer',x:860,y:522,ref:'+5 V',name:'Потребители 5 V',sub:'A4 DC+, BP1 (резерв)'}
+];
+const PE=[
+  {v:'mains',devs:'mains',d:'M180 72H210'},{v:'mains',devs:'mains ssr',d:'M370 72H400'},
+  {v:'mains',devs:'ssr',d:'M560 72H590'},{v:'mains',devs:'ssr',d:'M750 72H780'},
+  {v:'mains',devs:'mains psu',d:'M290 105V189'},
+  {v:'24',devs:'psu',d:'M370 222H400'},{v:'24',devs:'psu pump',d:'M560 222H590'},
+  {v:'24',devs:'psu pump lm',d:'M575 222V422H590'},
+  {v:'24',devs:'pump',d:'M750 222H780'},
+  {v:'5',devs:'lm esp',d:'M750 422H780'},{v:'33',devs:'esp v33',d:'M940 422H970'},
+  {v:'5',devs:'lm ssr buzzer',d:'M670 455V522H780'}
+];
+function svgPower(){
+  let s='';
+  for(const e of PE) s+=`<path class="wire v-${e.v}" data-devs="${e.devs}" d="${e.d}"/>`;
+  s+=`<circle class="jdot v-24" cx="575" cy="222" r="3.6" data-devs="psu"/>`;
+  s+=`<text class="vlab v-mains" x="298" y="152">~220 В</text>
+      <text class="vlab v-24" x="583" y="276">+24 V</text>
+      <text class="vlab v-5" x="765" y="413" text-anchor="middle">5 V</text>
+      <text class="vlab v-33" x="955" y="413" text-anchor="middle">3,3 V</text>
+      <text class="vlab v-5" x="678" y="497">5 V</text>`;
+  for(const n of PN){
+    const d=DEV[n.sel],x=n.x-80,y=n.y-33;
+    s+=`<g class="mod ${cc(n.sel)}" data-sel="${n.sel}" data-devs="${n.devs}" role="button" tabindex="0" aria-label="${esc(n.ref+' '+n.name)}">
+      <rect class="box" x="${x}" y="${y}" width="160" height="66" rx="6"/>
+      <text class="ref" x="${x+12}" y="${y+18}">${esc(n.ref)}</text>
+      <text class="nm" x="${x+12}" y="${y+38}">${esc(n.name)}</text>
+      <text class="sb" x="${x+12}" y="${y+55}">${esc(n.sub)}</text></g>`;
+  }
+  // legend
+  const lg=[['mains','~220 В, фаза L'],['24','+24 V'],['5','+5 V'],['33','3,3 V']];
+  s+=`<text class="legend-t" x="24" y="300" style="font-weight:700">Цвет провода — напряжение</text>`;
+  lg.forEach((l,i)=>{const y=326+i*24;s+=`<path class="wire v-${l[0]}" d="M24 ${y}H64"/><text class="legend-t" x="76" y="${y+4}">${l[1]}</text>`;});
+  s+=`<text class="legend-t" x="24" y="438">Цвет обводки блока — группа (как на виде «Сигналы»)</text>`;
+  s+=`<g class="mod c-pwr" data-sel="gnd" data-devs="gnd psu pump lm" role="button" tabindex="0" aria-label="Точка GND">
+    <rect class="gndband" x="24" y="590" width="1132" height="40" rx="6"/>
+    <text class="nm" x="40" y="615" style="font-size:15px">⏚ GND — звезда у БП:</text>
+    <text class="sb" x="208" y="615">G1 −V, A2 DC−, A5 IN− · сигнальные GND модулей и датчиков — к GND платы J1-22</text></g>`;
+  return `<svg class="sch" viewBox="0 0 1180 650" role="img" aria-label="Схема питания 24 V и сетевой части 220 В">${s}</svg>`;
+}
+
+/* ---------- render ---------- */
+const sheet=document.getElementById('sheet'),panel=document.getElementById('panel');
+function renderSheet(){sheet.innerHTML=view==='power'?svgPower():svgSignals();applyDim();}
+function applyDim(){
+  const svg=sheet.querySelector('svg');if(!svg)return;
+  const selDev=sel&&!sel.startsWith('pin:')&&sel!=='esp'?sel:null;
+  svg.querySelectorAll('[data-devs]').forEach(el=>{
+    const ds=el.dataset.devs.split(' ');
+    const okCat=cat==='all'||ds.some(d=>DEV[d]&&DEV[d].cats.includes(cat));
+    const okSel=!selDev||ds.includes(selDev);
+    el.classList.toggle('dim',!(okCat&&okSel));
+    el.classList.toggle('on',!!selDev&&ds.includes(selDev));
+  });
+  svg.querySelectorAll('.pg').forEach(g=>{
+    const ring=g.querySelector('.pinsel');if(!ring)return;
+    const hit=(sel&&sel.startsWith('pin:')&&g.dataset.key===sel.slice(4))||(selDev&&g.dataset.sel===selDev);
+    ring.setAttribute('visibility',hit?'visible':'hidden');
+  });
+}
+function connHTML(c,prefix){
+  const on=done.has(c.id);
+  return `<li><label class="conn${on?' done':''}" data-row="${c.id}"><input type="checkbox" id="${prefix}-${c.id}" data-conn="${c.id}"${on?' checked':''}>
+    <span class="ab"><span class="a">${esc(c.a)}</span><span class="arr">→</span><span class="b">${esc(c.b)}</span><span class="w">${esc(c.w)}</span></span></label></li>`;
+}
+function legendHTML(){
+  if(view==='power'){
+    return `<div class="lg">${[['v-mains','~220 В, фаза L'],['v-24','+24 V'],['v-5','+5 V'],['v-33','3,3 V']].map(l=>`<div class="${l[0]}"><i></i>${l[1]}</div>`).join('')}</div>`;
+  }
+  return `<div class="lg">${['act','sens','ui','pwr'].map(k=>`<div class="c-${k}"><i></i>${CATS[k]}</div>`).join('')}<div><i class="dash"></i>Резерв, сейчас не ставится</div></div>`;
+}
+function pinLegend(){
+  const dot=(cls,x)=>`<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle class="pin ${cls}" cx="7" cy="7" r="4.6"/>${x?'<path class="x" d="M4.4 4.4L9.6 9.6M9.6 4.4L4.4 9.6"/>':''}</svg>`;
+  return `<div class="lg"><div class="c-act">${dot('used c-act')}Занят по ТЗ</div><div>${dot('free')}Свободен, резерв</div><div>${dot('avoid',1)}Не использовать</div><div>${dot('power')}Питание</div></div>`;
+}
+function renderPanel(){
+  let h='';
+  if(!sel){
+    const freeN=Object.values(PIN).filter(p=>p[0]==='free').length;
+    const usedN=Object.keys(PINDEV).filter(k=>/^IO/.test((k.startsWith('J1')?J1:J3)[+k.split('-')[1]-1])).length+Object.values(PIN).filter(p=>p[0]==='used').length;
+    const freeList=[...J1.map((n,i)=>[n,'J1-'+(i+1)]),...J3.map((n,i)=>[n,'J3-'+(i+1)])].filter(([n,l])=>!PINDEV[l]&&PIN[n]&&PIN[n][0]==='free');
+    h=`<div><div class="eyebrow">Подсказка</div><h2>Выберите блок</h2>
+      <p class="p-sub">Нажмите на блок, провод или вывод платы. Здесь появятся соединения с отметками, номиналы деталей и что проверить. Esc снимает выбор.</p></div>
+      <section><h3>${view==='power'?'Цвет провода':'Цвет провода — группа'}</h3>${legendHTML()}</section>
+      ${view==='signals'?`<section><h3>Выводы платы</h3>${pinLegend()}<p class="hint" style="margin-top:8px;font-size:13.5px">Занято ${usedN} GPIO, свободно ${freeN}.</p></section><section><h3>Свободные GPIO</h3><ul class="pins">${freeList.map(([n,l])=>`<li><span class="g">${n}</span><span class="l">${l}</span><span>${esc(PIN[n][1])}</span></li>`).join('')}</ul></section>`:''}
+      <section><h3>Прогресс</h3>${progHTML()}</section>`;
+  }else if(sel.startsWith('pin:')){
+    const [loc,name]=sel.slice(4).split('|');const info=PIN[name]||['free','',''];
+    const lbl={avoid:'не использовать',free:'свободен',power:'питание',used:'задействован'}[info[0]];
+    h=`<button class="back" type="button" data-back>↑ К схеме</button>
+      <div><div class="p-ref">${esc(loc)}</div><h2>${esc(name)}</h2><div class="tags"><span class="st ${info[0]}">${lbl}</span></div></div>
+      <section><h3>Назначение</h3><p class="hint">${esc(info[2])}</p></section>`;
+  }else{
+    const d=DEV[sel];
+    let conns=d.conns.map(c=>({...c,dev:sel}));
+    if(sel==='gnd')conns=ALL_CONNS.filter(c=>/Точка GND|G1 −V/.test(c.a+c.b));
+    const dn=conns.filter(c=>done.has(c.id)).length;
+    let pins='';
+    if(sel==='esp'){
+      const rows=Object.entries(PINDEV).sort((a,b)=>a[0].localeCompare(b[0],'ru',{numeric:true}));
+      pins=`<section><h3>Задействованные выводы</h3><ul class="pins">${rows.map(([k,v])=>{const n=(k.startsWith('J1')?J1:J3)[+k.split('-')[1]-1];return `<li><span class="g">${n}</span><span class="l">${k}</span><span>${esc(DEV[v.id].ref)} · ${esc(DEV[v.id].name)}</span></li>`;}).join('')}</ul></section>`;
+    }else if(d.pins.length){
+      pins=`<section><h3>Выводы ESP32</h3><ul class="pins">${d.pins.map(p=>`<li><span class="g">${(p.h==='J1'?J1:J3)[p.i-1]}</span><span class="l">${p.h}-${p.i}</span><span>${esc(p.t)}</span></li>`).join('')}</ul></section>`;
+    }
+    h=`<button class="back" type="button" data-back>↑ К схеме</button>
+      <div class="${cc(sel)}"><div class="p-ref">${esc(d.ref)}</div><h2>${esc(d.name)}</h2><p class="p-sub">${esc(d.sub)}</p>
+      <div class="tags">${d.cats.map(k=>`<span class="tagc c-${k}"><i></i>${CATS[k]}</span>`).join('')}</div></div>
+      ${pins}
+      ${conns.length?`<section><h3><span>Соединения</span><span class="mono" data-cnt>${dn} / ${conns.length}</span></h3><ul>${conns.map(c=>connHTML(c,'p')).join('')}</ul></section>`:''}
+      ${d.parts.length?`<section><h3>Детали</h3><ul class="dots">${d.parts.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></section>`:''}
+      ${d.notes.length?`<section><h3>Проверить</h3><ul class="dots">${d.notes.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></section>`:''}`;
+  }
+  panel.innerHTML=h;
+}
+function progHTML(){
+  const n=COUNTED.length,k=COUNTED.filter(c=>done.has(c.id)).length;
+  return `<div class="prog"><div class="row"><span>Распаяно ${k} из ${n}</span><span class="mono">${Math.round(k/n*100)}%</span></div><div class="meter"><span style="width:${k/n*100}%"></span></div></div>`;
+}
+function renderProgress(){
+  const n=COUNTED.length,k=COUNTED.filter(c=>done.has(c.id)).length;
+  document.getElementById('prog-t').textContent=`Распаяно ${k} из ${n}`;
+  document.getElementById('prog-p').textContent=Math.round(k/n*100)+'%';
+  document.getElementById('prog-bar').style.width=(k/n*100)+'%';
+}
+function renderTable(){
+  const body=document.getElementById('net-body');let h='';
+  for(const id of NET_ORDER){
+    const d=DEV[id];
+    if(cat!=='all'&&!d.cats.includes(cat))continue;
+    let rows=d.conns;
+    const dn=rows.filter(c=>done.has(c.id)).length;
+    if(hideDone)rows=rows.filter(c=>!done.has(c.id));
+    if(!rows.length)continue;
+    const s=sel===id?' sel-row':'';
+    h+=`<tr class="grp ${cc(id)}"><th colspan="4"><button class="gb" type="button" data-show="${id}"><span class="gr">${esc(d.ref)}</span><span class="gn">${esc(d.name)}</span></button><span class="gc">${dn} / ${d.conns.length}${d.cats.includes('res')?' · резерв':''}</span></th></tr>`;
+    for(const c of rows){
+      const on=done.has(c.id);
+      h+=`<tr class="${on?'done':''}${s}" data-row="${c.id}"><td class="ck"><input type="checkbox" id="t-${c.id}" data-conn="${c.id}" aria-label="${esc(c.a+' → '+c.b)}"${on?' checked':''}></td>
+        <td class="from">${esc(c.a)}</td><td class="to">${esc(c.b)}</td><td class="wi">${esc(c.w)}</td></tr>`;
+    }
+  }
+  body.innerHTML=h||`<tr><td colspan="4" class="empty">В этой группе всё распаяно.</td></tr>`;
+}
+function renderChips(){
+  const el=document.getElementById('chips');
+  el.innerHTML=`<button class="chip" type="button" data-cat="all" aria-pressed="${cat==='all'}">Все</button>`+
+    CAT_ORDER.map(k=>`<button class="chip c-${k}${k==='res'?' res':''}" type="button" data-cat="${k}" aria-pressed="${cat===k}"><i></i>${CATS[k]}</button>`).join('');
+}
+function renderAll(){renderChips();renderSheet();renderPanel();renderTable();renderProgress();}
+
+/* ---------- events ---------- */
+function select(v,scroll){
+  sel=v;applyDim();renderPanel();renderTable();
+  if(scroll&&v&&window.innerWidth<1180){panel.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});}
+}
+sheet.addEventListener('click',e=>{
+  const pin=e.target.closest('[data-pin]');
+  if(pin){select('pin:'+pin.dataset.loc+'|'+pin.dataset.pin,true);return;}
+  const m=e.target.closest('[data-sel]');
+  if(m){const v=m.dataset.sel;select(sel===v?null:v,sel!==v);return;}
+  select(null);
+});
+sheet.addEventListener('keydown',e=>{
+  if(e.key!=='Enter'&&e.key!==' ')return;
+  const m=e.target.closest('[data-sel]');if(!m)return;
+  e.preventDefault();select(sel===m.dataset.sel?null:m.dataset.sel,true);
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&sel)select(null);});
+panel.addEventListener('click',e=>{if(e.target.closest('[data-back]'))sheet.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});});
+document.getElementById('chips').addEventListener('click',e=>{
+  const b=e.target.closest('[data-cat]');if(!b)return;cat=b.dataset.cat;renderChips();applyDim();renderTable();
+});
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{location.hash=b.dataset.view;}));
+function setView(){
+  const v=location.hash==='#power'?'power':'signals';
+  view=v;
+  document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.view===v)));
+  if(sel&&sel.startsWith('pin:')&&v==='power')sel=null;
+  renderSheet();renderPanel();
+}
+window.addEventListener('hashchange',setView);
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.id==='hide-done'){hideDone=t.checked;renderTable();return;}
+  if(!t.dataset||!t.dataset.conn)return;
+  const id=t.dataset.conn;
+  if(t.checked)done.add(id);else done.delete(id);save();
+  document.querySelectorAll(`[data-conn="${id}"]`).forEach(x=>{x.checked=t.checked;});
+  document.querySelectorAll(`[data-row="${id}"]`).forEach(r=>r.classList.toggle('done',t.checked));
+  renderProgress();
+  const cnt=panel.querySelector('[data-cnt]');
+  if(cnt){const ids=[...panel.querySelectorAll('[data-conn]')].map(x=>x.dataset.conn);cnt.textContent=`${ids.filter(i=>done.has(i)).length} / ${ids.length}`;}
+  if(!sel){renderPanel();}
+  if(hideDone&&t.closest('#net-body')){setTimeout(renderTable,250);}else{
+    // refresh group counters without losing focus
+    document.querySelectorAll('#net-body tr.grp').forEach(g=>{
+      const id=g.querySelector('[data-show]').dataset.show,d=DEV[id];
+      g.querySelector('.gc').textContent=`${d.conns.filter(c=>done.has(c.id)).length} / ${d.conns.length}${d.cats.includes('res')?' · резерв':''}`;
+    });
+  }
+});
+document.getElementById('net-body').addEventListener('click',e=>{
+  const b=e.target.closest('[data-show]');if(!b)return;
+  const id=b.dataset.show;
+  const onSig=SIG_ORDER.includes(id)||id==='v33';
+  const onPwr=PN.some(n=>n.sel===id);
+  if(view==='signals'&&!onSig&&onPwr){location.hash='power';}
+  else if(view==='power'&&!onPwr&&onSig){location.hash='signals';}
+  select(id,false);
+  sheet.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});
+});
+const reset=document.getElementById('reset');let armed=null;
+reset.addEventListener('click',()=>{
+  if(armed){clearTimeout(armed);armed=null;done.clear();save();reset.textContent='Сбросить отметки';reset.classList.remove('warn');renderPanel();renderTable();renderProgress();return;}
+  reset.textContent='Точно сбросить все?';reset.classList.add('warn');
+  armed=setTimeout(()=>{armed=null;reset.textContent='Сбросить отметки';reset.classList.remove('warn');},3500);
+});
+
+view=location.hash==='#power'?'power':'signals';
+document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.view===view)));
+renderAll();
+})();
+</script>
+
+</body>
+</html>
