@@ -1,5 +1,7 @@
 # Fog Humidifier — увлажнитель туманом высокого давления на ESP32-S3
 
+**[Схема распайки онлайн](https://sukobyatina.github.io/fog-humidifier-esp32/wiring.html)** · [ТЗ](docs/TZ.md) · [Распиновка](docs/pinout.md)
+
 Домашний увлажнитель воздуха: насос высокого давления (70 бар) распыляет осмосную воду через форсунки 0,08 мм, а контроллер на ESP32-S3 с ESPHome держит заданную влажность и защищает систему. Интеграция — Home Assistant.
 
 > ⚠️ В системе есть сеть 220 В и вода под давлением 70 бар. Повторяйте на свой риск: УЗО 30 мА, предохранительный клапан и проверка по разделу 7 ТЗ обязательны.
@@ -24,7 +26,7 @@
 | [`homeassistant/fog-card.yaml`](homeassistant/fog-card.yaml) | карточка для дашборда HA |
 | [`docs/TZ.md`](docs/TZ.md) | техническое задание: железо, логика, аварии, пусконаладка |
 | [`docs/pinout.md`](docs/pinout.md) | распиновка и свободные выводы |
-| [`docs/wiring.html`](docs/wiring.html) | интерактивная схема распайки с чек-листом (скачайте и откройте в браузере) |
+| [`docs/wiring.html`](https://sukobyatina.github.io/fog-humidifier-esp32/wiring.html) | [интерактивная схема распайки](https://sukobyatina.github.io/fog-humidifier-esp32/wiring.html) с чек-листом — открывается в браузере |
 
 ## Оборудование
 
