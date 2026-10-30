@@ -1,0 +1,51 @@
+# Примеры автоматизаций Home Assistant для системы туманообразования.
+# Настройки → Автоматизации → Создать → ⋮ → «Редактировать в YAML» → вставить одну автоматизацию.
+# Замените binary_sensor.leak_* на ваши датчики протечки и notify.mobile_app_phone на свой сервис.
+# Entity ID устройства: если оно привязано к зоне, добавьте её префикс (например, spalnia_).
+
+# 1. Протечка → выключить туманообразование
+alias: "Туман: стоп при протечке"
+mode: single
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.leak_tech_room
+      - binary_sensor.leak_humidifier
+    to: "on"
+actions:
+  - action: switch.turn_off
+    target:
+      entity_id: switch.tumanoobrazovanie_glavnyi_vykliuchatel_avtomatiki
+  - action: notify.mobile_app_phone
+    data:
+      title: "Протечка"
+      message: "Туманообразование выключено: сработал датчик протечки."
+
+---
+# 2. Авария контроллера → уведомление
+alias: "Туман: уведомление об аварии"
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: sensor.tumanoobrazovanie_sostoianie
+    to: "Авария"
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      title: "Туманообразование: авария"
+      message: "{{ states('sensor.tumanoobrazovanie_posledniaia_avariia') }}"
+
+---
+# 3. Контроллер пропал из сети дольше 10 минут → уведомление
+alias: "Туман: нет связи с контроллером"
+mode: single
+triggers:
+  - trigger: state
+    entity_id: sensor.tumanoobrazovanie_sostoianie
+    to: "unavailable"
+    for: "00:10:00"
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      title: "Туманообразование"
+      message: "Контроллер не на связи 10 минут. Он продолжает работать сам, но протечка не остановит его через HA."

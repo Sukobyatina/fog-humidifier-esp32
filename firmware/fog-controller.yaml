@@ -1,5 +1,5 @@
 # =====================================================================
-#  Система туманообразования — контроллер (ТЗ v2.6, docs/TZ.md)
+#  Система туманообразования — контроллер (ТЗ v2.7, docs/TZ.md)
 #  Плата: YD-ESP32-S3 N16R8 · ESPHome 2026.x · ESP-IDF
 #
 #  Перед первой прошивкой:
@@ -7,8 +7,9 @@
 #   2. substitutions ниже: датчик влажности HA (ha_humidity),
 #      MAC BLE-термометра (ble_mac),
 #      pwm_max (жёсткий предел ШИМ = калибровка по манометру + 10 %)
-#   3. Пусконаладка по разделу 7 ТЗ: «Рабочая мощность» подбирается
-#      по манометру до 65–70 бар, начиная с 30 %.
+#   3. До первого пуска установить предохранительный клапан 75–78 бар.
+#   4. Пусконаладка по разделу 7 ТЗ: «Рабочая мощность» подбирается
+#      по манометру до 65–70 бар, начиная с 20 % шагом 2 %.
 # =====================================================================
 
 substitutions:
@@ -17,7 +18,7 @@ substitutions:
   ha_humidity: sensor.living_room_humidity  # датчик влажности из HA
   ble_mac: "A4:C1:38:00:00:00"              # BLE-термометр LYWSD03MMC с прошивкой pvvx
   pwm_freq: 10000Hz                         # в пределах спецификации XY-MOS
-  pwm_max: "45"                             # %, после калибровки: найденное + 10
+  pwm_max: "35"                             # %, жёсткий предел ШИМ (насос и промывка); после калибровки: найденное + 10
   flow_ml_min: "80"                         # расход 4 форсунок, мл/мин (уточнить замером)
   timezone: Europe/Moscow                    # часовой пояс для времени аварий
 
@@ -35,7 +36,7 @@ esphome:
       then:
         - lambda: |-
             id(boot_ms) = millis();
-            bool hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard);
+            bool hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard) || id(a_run);
             id(st) = hard ? 8 : 0;
         - script.execute: release_pressure
 
@@ -80,6 +81,10 @@ captive_portal:
 web_server:
   port: 80
   version: 3
+  auth:                          # без пароля любой в сети может управлять насосом
+    type: digest
+    username: !secret web_username
+    password: !secret web_password
 
 time:
   - platform: sntp
@@ -113,13 +118,16 @@ globals:
   - {id: a_hot, type: bool, restore_value: true, initial_value: "false"}
   - {id: a_tfault, type: bool, restore_value: true, initial_value: "false"}
   - {id: a_wd_hard, type: bool, restore_value: true, initial_value: "false"}
+  - {id: a_run, type: bool, restore_value: true, initial_value: "false"}
   - {id: last_alarm, type: std::string, initial_value: '"—"'}
   # мягкие блокировки
   - {id: freeze, type: bool, initial_value: "false"}
-  - {id: wd_block_until, type: uint32_t, initial_value: "0"}
+  - {id: wd_block_on, type: bool, initial_value: "false"}
+  - {id: wd_block_ms, type: uint32_t, initial_value: "0"}
   - {id: wd_strikes, type: int, initial_value: "0"}
   - {id: wd_first_ms, type: uint32_t, initial_value: "0"}
-  - {id: stuck_block_until, type: uint32_t, initial_value: "0"}
+  - {id: stuck_block_on, type: bool, initial_value: "false"}
+  - {id: stuck_block_ms, type: uint32_t, initial_value: "0"}
   - {id: needs_flush, type: bool, initial_value: "false"}
   # влажность
   - {id: rh_ha_ms, type: uint32_t, initial_value: "0"}
@@ -137,6 +145,9 @@ globals:
   - {id: ww_start_ms, type: uint32_t, initial_value: "0"}
   - {id: ww_try_ms, type: uint32_t, initial_value: "0"}
   - {id: dry_strikes, type: int, initial_value: "0"}
+  # работа насоса и простой без SNTP
+  - {id: pump_on_ms, type: uint32_t, initial_value: "0"}
+  - {id: last_run_ms, type: uint32_t, initial_value: "0"}
   # ресурс — во флэш
   - {id: motor_s, type: uint32_t, restore_value: true, initial_value: "0"}
   - {id: motor_s_service, type: uint32_t, restore_value: true, initial_value: "0"}
@@ -219,7 +230,9 @@ binary_sensor:
             ESP_LOGW("fog", "Пропала вода во время работы (%d подряд)", id(dry_strikes));
             if (id(dry_strikes) >= 3) {
               id(a_dry) = true;
-              id(last_alarm) = "Сухой ход: 3 обрыва подряд";
+              auto t = id(rtc).now();
+              id(last_alarm) = std::string("Сухой ход: 3 обрыва подряд") + (t.is_valid() ? t.strftime(" · %d.%m %H:%M") : "");
+              global_preferences->sync();   // авария переживает отключение питания
             } else {
               id(st) = 6;
               id(ww_start_ms) = millis();
@@ -258,17 +271,20 @@ binary_sensor:
     name: "Авария: датчик температуры"
     lambda: return id(a_tfault);
   - platform: template
+    name: "Авария: насос не остановился"
+    lambda: return id(a_run);
+  - platform: template
     name: "Риск замерзания"
     lambda: return id(freeze);
   - platform: template
     name: "Watchdog"
-    lambda: return id(a_wd_hard) || (int32_t)(id(wd_block_until) - millis()) > 0;
+    lambda: return id(a_wd_hard) || id(wd_block_on);
   - platform: template
     name: "Нет данных влажности (RH)"
     lambda: return isnan(id(rh_used));
   - platform: template
     name: "Залипший датчик RH"
-    lambda: return (int32_t)(id(stuck_block_until) - millis()) > 0;
+    lambda: return id(stuck_block_on);
   - platform: template
     name: "Ожидание воды"
     lambda: return id(st) == 6;
@@ -384,7 +400,9 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     turn_off_action:
-      - lambda: id(series_active) = false;
+      - lambda: |-
+          id(series_active) = false;
+          if (id(st) == 6) id(st) = 0;   // выключено — не ждать воду и не копить аварию сухого хода
       - script.execute: stop_all
   - platform: template
     id: autoflush
@@ -409,11 +427,12 @@ button:
     name: "Сброс аварий"
     on_press:
       - lambda: |-
-          id(a_dry) = id(a_hot) = id(a_tfault) = id(a_wd_hard) = false;
+          id(a_dry) = id(a_hot) = id(a_tfault) = id(a_wd_hard) = id(a_run) = false;
           id(wd_strikes) = 0;
           id(dry_strikes) = 0;
-          id(wd_block_until) = millis();
-          id(stuck_block_until) = millis();
+          id(wd_block_on) = false;
+          id(stuck_block_on) = false;
+          global_preferences->sync();
           if (id(st) == 8 || id(st) == 6) id(st) = 0;
           id(led_mode) = -1;
           ESP_LOGI("fog", "Аварии сброшены");
@@ -422,7 +441,7 @@ button:
     on_press:
       - if:
           condition:
-            lambda: return id(st) == 0 && !id(cycle).is_running() && !id(flush).is_running();
+            lambda: return id(st) == 0 && !id(freeze) && !id(cycle).is_running() && !id(flush).is_running();
           then:
             - script.execute: flush
   - platform: template
@@ -458,15 +477,16 @@ number:
   - {platform: template, id: n_pulse, name: "Время импульса", unit_of_measurement: "s", min_value: 5, max_value: 120, step: 1, initial_value: 30, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_pause, name: "Время паузы", unit_of_measurement: "s", min_value: 30, max_value: 1800, step: 5, initial_value: 180, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_starts_h, name: "Максимум пусков в час", min_value: 5, max_value: 60, step: 1, initial_value: 30, optimistic: true, restore_value: true, mode: box, entity_category: config}
-  - {platform: template, id: n_power, name: "Рабочая мощность насоса", unit_of_measurement: "%", min_value: 20, max_value: "${pwm_max}", step: 1, initial_value: 30, optimistic: true, restore_value: true, mode: box, entity_category: config}
-  - {platform: template, id: n_flush_power, name: "Мощность промывки (PWM)", unit_of_measurement: "%", min_value: 30, max_value: 100, step: 5, initial_value: 100, optimistic: true, restore_value: true, mode: box, entity_category: config}
+  - {platform: template, id: n_power, name: "Рабочая мощность насоса", unit_of_measurement: "%", min_value: 15, max_value: "${pwm_max}", step: 1, initial_value: 25, optimistic: true, restore_value: true, mode: box, entity_category: config}
+  - {platform: template, id: n_flush_power, name: "Мощность промывки (PWM)", unit_of_measurement: "%", min_value: 15, max_value: "${pwm_max}", step: 1, initial_value: "${pwm_max}", optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_rel_delay, name: "Задержка перед сбросом (s)", unit_of_measurement: "s", min_value: 0, max_value: 2, step: 0.1, initial_value: 0, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_rel_time, name: "Время сброса", unit_of_measurement: "s", min_value: 1, max_value: 5, step: 0.5, initial_value: 3, optimistic: true, restore_value: true, mode: box, entity_category: config}
-  - {platform: template, id: n_flush_time, name: "Время промывки (s)", unit_of_measurement: "s", min_value: 20, max_value: 180, step: 5, initial_value: 60, optimistic: true, restore_value: true, mode: box, entity_category: config}
+  - {platform: template, id: n_flush_time, name: "Время промывки (s)", unit_of_measurement: "s", min_value: 30, max_value: 300, step: 5, initial_value: 120, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_idle_flush_h, name: "Порог простоя для промывки", unit_of_measurement: "h", min_value: 12, max_value: 168, step: 1, initial_value: 48, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_hot, name: "Порог перегрева", unit_of_measurement: "°C", min_value: 50, max_value: 80, step: 1, initial_value: 70, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_wd_min, name: "Лимит Watchdog", unit_of_measurement: "min", min_value: 15, max_value: 240, step: 5, initial_value: 60, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_rh_timeout, name: "Таймаут данных влажности", unit_of_measurement: "min", min_value: 10, max_value: 180, step: 5, initial_value: 60, optimistic: true, restore_value: true, mode: box, entity_category: config}
+  - {platform: template, id: n_ble_timeout, name: "Таймаут BLE (min)", unit_of_measurement: "min", min_value: 2, max_value: 30, step: 1, initial_value: 5, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_stuck_cycles, name: "Циклов для проверки залипания", min_value: 3, max_value: 50, step: 1, initial_value: 10, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_stuck_thr, name: "Порог залипания RH", unit_of_measurement: "%", min_value: 0.2, max_value: 2, step: 0.1, initial_value: 0.5, optimistic: true, restore_value: true, mode: box, entity_category: config}
   - {platform: template, id: n_ww_retry, name: "Интервал повтора без воды", unit_of_measurement: "min", min_value: 1, max_value: 30, step: 1, initial_value: 5, optimistic: true, restore_value: true, mode: box, entity_category: config}
@@ -501,7 +521,7 @@ script:
           id(pump_out).set_level(0);
           id(pump_lvl) = 0;
           id(abort_req) = false;
-          bool hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard);
+          bool hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard) || id(a_run);
           if (hard) id(st) = 8;
           else if (id(st) != 6) id(st) = 4;
       - script.execute: release_pressure
@@ -548,6 +568,7 @@ script:
                 id(series_cycles)++;
                 auto t = id(rtc).now();
                 if (t.is_valid()) id(last_run_epoch) = t.timestamp;
+                id(last_run_ms) = now ? now : 1;
             - output.turn_on: drain_out
             - script.execute:
                 id: ramp
@@ -604,7 +625,7 @@ script:
             - delay: 500ms
             - script.execute:
                 id: ramp
-                target: !lambda return id(n_flush_power).state / 100.0f;
+                target: !lambda return std::min(id(n_flush_power).state, (float) ${pwm_max}) / 100.0f;
             - script.wait: ramp
             - delay: !lambda return (uint32_t)(id(n_flush_time).state * 1000);
             - lambda: |-
@@ -617,6 +638,8 @@ script:
                 id(needs_flush) = false;
                 auto t = id(rtc).now();
                 if (t.is_valid()) id(last_run_epoch) = t.timestamp;
+                uint32_t m = millis();
+                id(last_run_ms) = m ? m : 1;
                 id(st) = 0;
                 ESP_LOGI("fog", "Промывка завершена");
 
@@ -634,17 +657,39 @@ interval:
             auto t = id(rtc).now();
             id(last_alarm) = std::string(why) + (t.is_valid() ? t.strftime(" · %d.%m %H:%M") : "");
             ESP_LOGE("fog", "АВАРИЯ: %s", why);
+            global_preferences->sync();   // авария переживает отключение питания
             id(series_active) = false;
             id(stop_all).execute();
           };
 
-          // --- ресурс ---
-          if (id(pump_lvl) > 0.01f) { id(motor_s)++; id(motor_s_service)++; }
+          static bool boot_ok = false, t_armed = false;
+          if (!boot_ok && now - id(boot_ms) > 60000) boot_ok = true;
+          if (!t_armed && now - id(boot_ms) > 30000) t_armed = true;
+
+          // --- ресурс и предел непрерывной работы насоса (страховка от зависания логики) ---
+          if (id(pump_lvl) > 0.01f) {
+            id(motor_s)++; id(motor_s_service)++;
+            if (id(pump_on_ms) == 0) id(pump_on_ms) = now ? now : 1;
+            float lim_s = std::max(id(n_pulse).state, id(n_flush_time).state) + 30.0f;
+            if (now - id(pump_on_ms) > (uint32_t)(lim_s * 1000)) alarm(id(a_run), "Насос работает дольше допустимого");
+          } else {
+            id(pump_on_ms) = 0;
+          }
+
+          // --- истечение мягких блокировок ---
+          if (id(wd_block_on) && now - id(wd_block_ms) > 30UL * 60000UL) id(wd_block_on) = false;
+          if (id(stuck_block_on) && now - id(stuck_block_ms) > 60UL * 60000UL) id(stuck_block_on) = false;
 
           // --- влажность: Авто = BLE, при его отсутствии HA; либо строго выбранный источник ---
-          const float rto = id(n_rh_timeout).state * 60000.0f;
-          bool lv = id(rh_local_ms) > 0 && (now - id(rh_local_ms)) < rto && !isnan(id(rh_local).state);
-          bool hv = id(rh_ha_ms) > 0 && (now - id(rh_ha_ms)) < rto && !isnan(id(rh_ha).state);
+          // данные устаревают по своему таймауту; HA — сразу при потере связи с HA
+          const uint32_t rto_ha = (uint32_t)(id(n_rh_timeout).state * 60000.0f);
+          const uint32_t rto_ble = (uint32_t)(id(n_ble_timeout).state * 60000.0f);
+          const bool api_ok = api::global_api_server != nullptr && api::global_api_server->is_connected();
+          if (id(rh_local_ms) && now - id(rh_local_ms) >= rto_ble) id(rh_local_ms) = 0;
+          if (id(rh_ha_ms) && (!api_ok || now - id(rh_ha_ms) >= rto_ha)) id(rh_ha_ms) = 0;
+          auto plausible = [](float v) { return !isnan(v) && v >= 5.0f && v <= 95.0f; };
+          bool lv = id(rh_local_ms) != 0 && plausible(id(rh_local).state);
+          bool hv = id(rh_ha_ms) != 0 && plausible(id(rh_ha).state);
           const size_t src = id(rh_src).active_index().value_or(0);  // 0 Авто, 1 BLE, 2 HA
           float rh = NAN;
           if ((src == 0 || src == 1) && lv) { rh = id(rh_local).state; id(rh_src_used) = "BLE"; }
@@ -653,28 +698,36 @@ interval:
           id(rh_used) = rh;
 
           // --- температура насоса ---
-          static uint32_t t_bad_since = 0;
+          static uint32_t t_bad_since = 0, hot_since = 0;
           float tp = id(t_pump).state;
           if (isnan(tp)) {
-            if (now - id(boot_ms) > 30000) {
+            hot_since = 0;
+            if (t_armed) {
               if (t_bad_since == 0) t_bad_since = now;
               if (now - t_bad_since > 10000) alarm(id(a_tfault), "Неисправность датчика температуры");
             }
           } else {
             t_bad_since = 0;
-            if (tp > id(n_hot).state) alarm(id(a_hot), "Перегрев насоса");
-            else if (tp > id(n_hot).state - 10 && id(pump_lvl) > 0) ESP_LOGW("fog", "Температура насоса %.1f °C", tp);
+            // перегрев — по двум показаниям подряд (отсев сбойного 85 °C при включении DS18B20)
+            if (tp > id(n_hot).state) {
+              if (hot_since == 0) hot_since = now ? now : 1;
+              if (now - hot_since >= 7000) alarm(id(a_hot), "Перегрев насоса");
+            } else {
+              hot_since = 0;
+              if (tp > id(n_hot).state - 10 && id(pump_lvl) > 0) ESP_LOGW("fog", "Температура насоса %.1f °C", tp);
+            }
             if (tp < 3.0f) id(freeze) = true;
             else if (tp > 5.0f) id(freeze) = false;
           }
 
-          bool hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard);
+          bool hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard) || id(a_run);
           int s = id(st);
 
           // --- максимальная влажность: прервать распыление ---
           if (s == 3 && !isnan(rh) && rh >= id(n_rhmax).state) id(abort_req) = true;
 
-          // --- ожидание воды ---
+          // --- ожидание воды (только при включённой автоматике) ---
+          if (s == 6 && !hard && !id(main_sw).state) { id(st) = 0; s = 0; }
           if (s == 6 && !hard) {
             if (now - id(ww_start_ms) > id(n_ww_limit).state * 60000.0f) {
               alarm(id(a_dry), "Сухой ход: воды нет дольше лимита");
@@ -689,7 +742,8 @@ interval:
             if (id(wd_strikes) == 0 || now - id(wd_first_ms) > 86400000UL) { id(wd_strikes) = 0; id(wd_first_ms) = now; }
             id(wd_strikes)++;
             id(series_active) = false;
-            id(wd_block_until) = now + 30UL * 60000UL;
+            id(wd_block_on) = true;
+            id(wd_block_ms) = now;
             if (id(wd_strikes) >= 3) alarm(id(a_wd_hard), "Watchdog: 3 срабатывания за сутки");
             else { id(last_alarm) = "Watchdog: пауза 30 мин"; ESP_LOGW("fog", "Watchdog, пауза 30 мин"); }
           }
@@ -698,24 +752,26 @@ interval:
           if (id(series_active) && id(st) == 0 && id(series_cycles) >= (int) id(n_stuck_cycles).state
               && !isnan(rh) && fabsf(rh - id(series_rh0)) < id(n_stuck_thr).state) {
             id(series_active) = false;
-            id(stuck_block_until) = now + 60UL * 60000UL;
+            id(stuck_block_on) = true;
+            id(stuck_block_ms) = now;
             id(last_alarm) = "Залипший датчик влажности: пауза 60 мин";
             ESP_LOGW("fog", "Залипший датчик влажности");
           }
 
           // --- гигростат: решение о пуске ---
-          hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard);
+          hard = id(a_dry) || id(a_hot) || id(a_tfault) || id(a_wd_hard) || id(a_run);
           bool busy = id(cycle).is_running() || id(flush).is_running() ||
                       id(stop_all).is_running() || id(release_pressure).is_running();
-          bool blocked = hard || !id(main_sw).state || id(freeze) || isnan(rh) ||
-                         (now - id(boot_ms)) < 60000 ||
-                         (int32_t)(id(wd_block_until) - now) > 0 ||
-                         (int32_t)(id(stuck_block_until) - now) > 0;
+          bool blocked = hard || !id(main_sw).state || id(freeze) || isnan(rh) || !boot_ok ||
+                         id(wd_block_on) || id(stuck_block_on);
 
           // простой для анти-легионеллы
+          // по реальному времени; без SNTP — промывка один раз после загрузки, дальше по uptime
           auto t = id(rtc).now();
-          bool long_idle = id(last_run_epoch) == 0 ||
-                           (t.is_valid() && (t.timestamp - id(last_run_epoch)) > id(n_idle_flush_h).state * 3600.0f);
+          const float idle_s = id(n_idle_flush_h).state * 3600.0f;
+          bool long_idle;
+          if (t.is_valid() && id(last_run_epoch) != 0) long_idle = (t.timestamp - id(last_run_epoch)) > idle_s;
+          else long_idle = id(last_run_ms) == 0 || (now - id(last_run_ms)) > (uint32_t)(idle_s * 1000.0f);
 
           if (id(st) == 0 && !busy && !blocked) {
             float target = id(n_target).state;
